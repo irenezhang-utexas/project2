@@ -17,20 +17,6 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "../threads/vaddr.h"
-#include "../threads/thread.h"
-#include "../threads/palloc.h"
-#include "../lib/debug.h"
-#include "../lib/string.h"
-#include "../threads/interrupt.h"
-#include "gdt.h"
-#include "pagedir.h"
-#include "../threads/loader.h"
-#include "../threads/flags.h"
-#include "tss.h"
-#include "../filesys/filesys.h"
-#include "../filesys/file.h"
-#include "../lib/round.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);

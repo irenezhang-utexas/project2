@@ -11,16 +11,6 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "../lib/kernel/list.h"
-#include "interrupt.h"
-#include "vaddr.h"
-#include "../lib/string.h"
-#include "thread.h"
-#include "../lib/debug.h"
-#include "synch.h"
-#include "palloc.h"
-#include "switch.h"
-
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -149,6 +139,17 @@ thread_tick (void)
     intr_yield_on_return ();
 }
 
+
+/*
+ * returns true if the element that from the queue (queue_elem) has higher priority than
+ * the new element, otherwise returns false.
+ */
+bool priority_comp(struct list_elem *new_elem, struct list_elem *queue_elem, void *aux){
+
+ return list_entry(new_elem, struct thread, elem)->priority < list_entry(queue_elem, struct thread, elem)->priority;
+}
+
+
 /* Prints thread statistics. */
 void
 thread_print_stats (void) 
@@ -260,8 +261,7 @@ thread_name (void)
 }
 
 /* Returns the running thread.
-   This is running_thread() plus a couple of sanity1/1
-I had to miss class today and was wondering if someone could summarize what was covered. checks.
+   This is running_thread() plus a couple of sanity checks.
    See the big comment at the top of thread.h for details. */
 struct thread *
 thread_current (void) 
@@ -319,7 +319,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-    list_insert_ordered(&ready_list, &cur->elem, priority_comp, NULL);
+ 	list_insert_ordered(&ready_list, &cur->elem, priority_comp, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -397,7 +397,7 @@ thread_get_recent_cpu (void)
    ready list.  It is returned by next_thread_to_run() as a
    special case when the ready list is empty. */
 static void
-idle (void *idle_started_ UNUSED)
+idle (void *idle_started_ UNUSED) 
 {
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
@@ -457,7 +457,6 @@ is_thread (struct thread *t)
   return t != NULL && t->magic == THREAD_MAGIC;
 }
 
-
 /* Does basic initialization of T as a blocked thread named
    NAME. */
 static void
@@ -474,23 +473,11 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  t->magic = THREAD_MAGIC;  list_insert_ordered(&all_list, &t->allelem, priority_comp, NULL);
-
+  t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
-}
-
-
-/*
- * returns true if the element that from the queue (queue_elem) has higher priority than
- * the new element, otherwise returns false.
- */
- bool priority_comp(struct list_elem *new_elem, struct list_elem *queue_elem, void *aux){
-
- return list_entry(queue_elem, struct thread, elem)->priority > list_entry(new_elem, struct thread, elem)->priority;
-
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
