@@ -46,6 +46,7 @@ static unsigned int unexpected_cnt[INTR_CNT];
    interrupt returns. */
 static bool in_external_intr;   /* Are we processing an external interrupt? */
 static bool yield_on_return;    /* Should we yield on interrupt return? */
+static bool signal_sleeping_threads;
 
 /* Programmable Interrupt Controller helpers. */
 static void pic_init (void);
@@ -225,6 +226,16 @@ intr_yield_on_return (void)
   yield_on_return = true;
 }
 
+
+/* signals a timer interrupt to signal
+   all sleeping threads to wake up to
+   check whether they should continue
+   execution. */
+void intr_tick(void) {
+  ASSERT (intr_context ());
+  signal_sleeping_threads = true;
+}
+
 /* 8259A Programmable Interrupt Controller. */
 
 /* Initializes the PICs.  Refer to [8259A] for details.
@@ -359,6 +370,7 @@ intr_handler (struct intr_frame *frame)
 
       in_external_intr = true;
       yield_on_return = false;
+      signal_sleeping_threads = false;
     }
 
   /* Invoke the interrupt's handler. */
@@ -375,13 +387,16 @@ intr_handler (struct intr_frame *frame)
     unexpected_interrupt (frame);
 
   /* Complete the processing of an external interrupt. */
-  if (external) 
+  if (external)
     {
       ASSERT (intr_get_level () == INTR_OFF);
       ASSERT (intr_context ());
 
       in_external_intr = false;
       pic_end_of_interrupt (frame->vec_no); 
+
+      if(signal_sleeping_threads)
+        timer_signal_sleeping_threads();
 
       if (yield_on_return) 
         thread_yield (); 
