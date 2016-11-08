@@ -87,7 +87,9 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
+    int priority;                       /* Priority = base_pri + (inhereted priority) */
+	bool needs_backeup;					/* indicats if priority needs to be backed up by priority_backup */
+	int priority_backup;					/* in case donation occur, priority gets backed up in priority_backup */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
