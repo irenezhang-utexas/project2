@@ -70,7 +70,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0)
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, priority_comp, NULL);
       thread_block ();
     }
   sema->value--;
@@ -231,8 +231,6 @@ lock_acquire (struct lock *lock)
 
   if(success){
     //cur thread got the lock :)
-
-
   }
   else {
    if (lock->holder->priority < thread_current()->priority) {
@@ -244,8 +242,6 @@ lock_acquire (struct lock *lock)
 
    //sleep
    sema_down(&lock->semaphore);
-   thread_block();
-
   }
 
   /** ------------------------------------------End of Priority Donation----------------------------------------- */
@@ -274,11 +270,12 @@ lock_release (struct lock *lock)
 
   /** ------------------------------------------Priority Inversion----------------------------------------------- */
 
-// printf(">>>#%s h_thread release: P-%d  B-%d\n", lock->holder->name, lock->holder->priority, lock->holder->priority_backup);
 
- //restore priority
- lock->holder->priority = lock->holder->priority_backup;
- lock->holder->needs_backeup = true;
+ if (!lock->holder->needs_backeup) {
+  //restore priority
+  lock->holder->priority = lock->holder->priority_backup;
+  lock->holder->needs_backeup = true;
+ }
 
   /** ------------------------------------------End of Priority Inversion---------------------------------------- */
   //release lock
