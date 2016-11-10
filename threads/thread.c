@@ -267,9 +267,6 @@ thread_unblock (struct thread *t)
 
   t->status = THREAD_READY;
   intr_set_level (old_level);
-
-  if(t->priority > thread_current()->priority && thread_current() != idle_thread)
-    thread_yield();
 }
 
 /* Returns the name of the running thread. */
@@ -374,8 +371,6 @@ thread_set_priority (int new_priority)
  if( t->priority > new_priority){
   thread_yield();
  }
-
-
 }
 
 /* Returns the current thread's priority. */
