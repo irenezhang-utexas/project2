@@ -178,6 +178,8 @@ tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux)
 {
+  enum intr_level old_level;
+
   struct thread *t;
   struct kernel_thread_frame *kf;
   struct switch_entry_frame *ef;
@@ -213,20 +215,14 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
-/*
- struct thread *curr = running_thread();
- if (is_thread(curr)) {
-  if (priority >= curr->priority) {
-   thread_yield();
-  }
- } else{
-  schedule();
- }
- */
-
+  ASSERT ( !intr_context ());
+  old_level = intr_disable ();
   if(priority >= thread_current()->priority){
-  thread_yield();
- }
+    thread_yield();
+  }
+
+  intr_set_level(old_level);
+
   return tid;
 }
 
@@ -268,9 +264,16 @@ thread_unblock (struct thread *t)
   t->status = THREAD_READY;
   intr_set_level (old_level);
 
-  if(t->priority > thread_current()->priority && thread_current() != idle_thread)
-    thread_yield();
 }
+
+void yield_for_next(void){
+  if (list_empty(&ready_list)) return;
+
+  struct thread* t = list_entry(list_front(&ready_list), struct thread, elem);
+  if((t->priority > thread_current()->priority) && (thread_current() != idle_thread))
+    {thread_yield();}
+}
+
 
 /* Returns the name of the running thread. */
 const char *
