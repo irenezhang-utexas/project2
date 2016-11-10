@@ -11,7 +11,6 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "thread.h"
 
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -225,7 +224,7 @@ thread_create (const char *name, int priority,
  }
  */
 
- if(priority >= thread_current()->priority){
+  if(priority >= thread_current()->priority){
   thread_yield();
  }
   return tid;
@@ -265,8 +264,12 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered(&ready_list, &t->elem, priority_comp, NULL);
+
   t->status = THREAD_READY;
   intr_set_level (old_level);
+
+  if(t->priority > thread_current()->priority && thread_current() != idle_thread)
+    thread_yield();
 }
 
 /* Returns the name of the running thread. */
