@@ -201,6 +201,13 @@ lock_init (struct lock *lock)
   lock->base_pri = lock->cur_pri = PRI_MIN;
 }
 
+static bool lock_comp(struct list_elem *new_elem, struct list_elem *queue_elem, void *aux){
+
+ return list_entry(new_elem, struct lock, elem)->cur_pri > list_entry(queue_elem, struct lock, elem)->cur_pri;
+}
+
+
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -253,13 +260,19 @@ lock_acquire (struct lock *lock)
 
     lock->holder = t; //t became the owner of the lock
     t->sleeping_on_lock = NULL; //no loner waiting on a lock
+   
   }
 
 
   lock->cur_pri = t->priority;
   lock->base_pri = lock->cur_pri; //backup
+  
+  /*store acquired locks*/
+  list_insert_ordered(&t->lock_owned,&lock->elem,lock_comp,NULL); 
   /** ------------------------------------------End of Priority Donation----------------------------------------- */
 }
+
+
 
 /* Tries to acquires LOCK and returns true if successful or false
    on failure.  The lock must not already be held by the current
@@ -287,9 +300,17 @@ lock_release (struct lock *lock)
   //revert priority back to its state before acquiring this lock (not the very first state)
   struct thread* cur_thread = thread_current();
 
-  cur_thread->priority = lock->base_pri;
-  lock->base_pri = lock->cur_pri = PRI_MIN;
-  
+  /*remove lock for lock_list owned by current thread*/
+  //remove_lock(&cur_thread->lock_owned, lock);
+  list_remove(&lock->elem);
+
+  if (list_empty(&cur_thread->lock_owned)){
+    cur_thread->priority = lock->base_pri;
+    lock->base_pri = lock->cur_pri = PRI_MIN;
+  } else {
+    list_sort(&cur_thread->lock_owned, lock_comp, NULL);
+    cur_thread->priority = list_entry(list_front(&cur_thread->lock_owned),struct lock, elem)->cur_pri;
+  }
 
  /*if (lock->holder->priority_backup != 0) {
   //restore priority
