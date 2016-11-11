@@ -85,7 +85,7 @@ sema_try_down (struct semaphore *sema)
 {
   enum intr_level old_level;
   bool success;
-  
+
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
@@ -225,25 +225,39 @@ lock_acquire (struct lock *lock)
   struct thread *t = thread_current();
 
   if(success){
-    lock->cur_pri = t->priority;
-    lock->base_pri = lock->cur_pri; //backup
-  } else {
+    //do nothing
+  }
+  else {
+
     if(t->priority > lock->cur_pri) {
       lock->holder->priority = lock->cur_pri = t->priority; //donate
 
       struct thread *check_lock;
       check_lock = lock->holder;
+
       while(check_lock->sleeping_on_lock != NULL) {
-	
+	        struct thread* next_lock_holder = check_lock->sleeping_on_lock->holder;
+
+
+          if(t->priority > check_lock->sleeping_on_lock->cur_pri)
+            next_lock_holder->priority = check_lock->sleeping_on_lock->cur_pri = t->priority; //donate to next lock holder
+
+          check_lock = next_lock_holder->sleeping_on_lock;
       }
 
-      t->sleeping_on_lock = lock;
     }
 
+    t->sleeping_on_lock = lock;
     //sleep
     sema_down(&lock->semaphore);
+
+    lock->holder = t; //t became the owner of the lock
+    t->sleeping_on_lock = NULL; //no loner waiting on a lock
   }
 
+
+  lock->cur_pri = t->priority;
+  lock->base_pri = lock->cur_pri; //backup
   /** ------------------------------------------End of Priority Donation----------------------------------------- */
 }
 
@@ -270,22 +284,23 @@ lock_release (struct lock *lock)
 
   /** ------------------------------------------Priority Inversion----------------------------------------------- */
 
+  //revert priority back to its state before acquiring this lock (not the very first state)
+  struct thread* cur_thread = thread_current();
 
- if (lock->holder->priority_backup != 0) {
+  cur_thread->priority = lock->base_pri;
+  lock->base_pri = lock->cur_pri = PRI_MIN;
+  
+
+ /*if (lock->holder->priority_backup != 0) {
   //restore priority
   lock->holder->priority = lock->holder->priority_backup;
   lock->holder->priority_backup = 0;
- }
+}*/
 
   /** ------------------------------------------End of Priority Inversion---------------------------------------- */
   //release lock
   lock->holder = NULL;
-
-
   sema_up (&lock->semaphore);
-
-
-
 }
 
 /* Returns true if the current thread holds LOCK, false
