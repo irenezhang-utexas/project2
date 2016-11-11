@@ -119,6 +119,11 @@ sema_up (struct semaphore *sema)
                                 struct thread, elem));
   }
   sema->value++;
+
+  if (!intr_context()){
+    yield_for_next();
+  }
+
   intr_set_level (old_level);
 }
 
@@ -193,6 +198,7 @@ lock_init (struct lock *lock)
 
   lock->holder = NULL;
   sema_init (&lock->semaphore, 1);
+  lock->base_pri = lock->cur_pri = PRI_MIN;
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -212,36 +218,30 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  /*
-  sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
-   */
-
   /** ------------------------------------------Priority Donation----------------------------------------------- */
 
   bool success = lock_try_acquire(lock);
 
-
-
- if (lock->holder->needs_backeup) {
-  //back up priority in priority_backup ... in lock_release priority will be restored
-  lock->holder->priority_backup = lock->holder->priority;
-  lock->holder->needs_backeup = false;
- }
+  struct thread *t = thread_current();
 
   if(success){
-    //cur thread got the lock :)
-  }
-  else {
-   if (lock->holder->priority < thread_current()->priority) {
+    lock->cur_pri = t->priority;
+    lock->base_pri = lock->cur_pri; //backup
+  } else {
+    if(t->priority > lock->cur_pri) {
+      lock->holder->priority = lock->cur_pri = t->priority; //donate
 
-	//cur thread donates its priority to the thread who owns the lock
-	lock->holder->priority = thread_current()->priority;
+      struct thread *check_lock;
+      check_lock = lock->holder;
+      while(check_lock->sleeping_on_lock != NULL) {
+	
+      }
 
-   }
+      t->sleeping_on_lock = lock;
+    }
 
-   //sleep
-   sema_down(&lock->semaphore);
+    //sleep
+    sema_down(&lock->semaphore);
   }
 
   /** ------------------------------------------End of Priority Donation----------------------------------------- */
@@ -271,10 +271,10 @@ lock_release (struct lock *lock)
   /** ------------------------------------------Priority Inversion----------------------------------------------- */
 
 
- if (!lock->holder->needs_backeup) {
+ if (lock->holder->priority_backup != 0) {
   //restore priority
   lock->holder->priority = lock->holder->priority_backup;
-  lock->holder->needs_backeup = true;
+  lock->holder->priority_backup = 0;
  }
 
   /** ------------------------------------------End of Priority Inversion---------------------------------------- */
