@@ -248,8 +248,11 @@ lock_acquire (struct lock *lock)
 
           if(t->priority > check_lock->sleeping_on_lock->cur_pri)
             next_lock_holder->priority = check_lock->sleeping_on_lock->cur_pri = t->priority; //donate to next lock holder
+	  
+	  if(next_lock_holder->sleeping_on_lock == NULL)
+	    break;
 
-          check_lock = next_lock_holder->sleeping_on_lock;
+          check_lock = next_lock_holder->sleeping_on_lock->holder;
       }
 
     }
