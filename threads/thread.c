@@ -376,17 +376,18 @@ thread_set_priority (int new_priority)
 
  struct thread* cur = thread_current ();
 
- if(cur->priority_backup == 0){
-   cur->priority = new_priority;
- }else{
-   cur->priority_backup = new_priority;
-   if(cur->priority < new_priority){
-     cur->priority = new_priority;
+ if(!list_empty(&cur->lock_owned)){
+   struct list_elem *elem = list_front(&cur->lock_owned);
+   for(; elem != list_end(&cur->lock_owned); elem = list_next(elem)) {
+     struct lock *l = list_entry(elem, struct lock, elem);
+     l->base_pri = new_priority;
    }
-}
+ } else {
+   cur->priority = new_priority;
+ }
 
- if( t->priority > new_priority){
-  thread_yield();
+ if(t->priority > cur->priority){
+   thread_yield();
  }
 
  intr_set_level(old_level);
