@@ -268,6 +268,7 @@ thread_unblock (struct thread *t)
 void yield_for_next(void){
   if (list_empty(&ready_list)) return;
 
+  list_sort(&ready_list, priority_comp, NULL);
   struct thread* t = list_entry(list_front(&ready_list), struct thread, elem);
   if((t->priority > thread_current()->priority) && (thread_current() != idle_thread))
     {thread_yield();}
@@ -370,7 +371,8 @@ thread_set_priority (int new_priority)
 {
   enum intr_level old_level = intr_disable();
 
- struct list_elem* max_elem = list_max(&ready_list, priority_comp, NULL);
+  /*because priority_comp checks whether a > b, max and min find the opposite of what they should, thus max_elem can be found with list_min*/
+ struct list_elem* max_elem = list_min(&ready_list, priority_comp, NULL);
 
  struct thread *t = list_entry(max_elem, struct thread, elem);
 
@@ -551,8 +553,10 @@ next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  else {
+    list_sort(&ready_list, priority_comp, NULL);
+    return list_entry (list_pop_front(&ready_list), struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page

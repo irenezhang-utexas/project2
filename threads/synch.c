@@ -28,6 +28,7 @@
 
 #include "threads/synch.h"
 #include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -236,26 +237,36 @@ lock_acquire (struct lock *lock)
   }
   else {
 
-    if(t->priority > lock->cur_pri) {
+    if(t->priority > lock->holder->priority) {
       lock->holder->priority = lock->cur_pri = t->priority; //donate
 
       struct thread *check_lock;
       check_lock = lock->holder;
 
       while(check_lock->sleeping_on_lock != NULL) {
-	        struct thread* next_lock_holder = check_lock->sleeping_on_lock->holder;
+        struct thread* next_lock_holder = check_lock->sleeping_on_lock->holder;
 
+        if(t->priority > check_lock->sleeping_on_lock->cur_pri)
+          next_lock_holder->priority = check_lock->sleeping_on_lock->cur_pri = t->priority; //donate to next lock holder	 
+   
+	if(next_lock_holder->sleeping_on_lock == NULL)
+	  break;
 
-          if(t->priority > check_lock->sleeping_on_lock->cur_pri)
-            next_lock_holder->priority = check_lock->sleeping_on_lock->cur_pri = t->priority; //donate to next lock holder
-	  
-	  if(next_lock_holder->sleeping_on_lock == NULL)
-	    break;
-
-          check_lock = next_lock_holder->sleeping_on_lock->holder;
+        check_lock = next_lock_holder->sleeping_on_lock->holder;
       }
 
+      if(t->priority > check_lock->priority) {
+	struct list_elem *e = list_begin(&check_lock->lock_owned);
+
+	for(; e != list_end(&check_lock->lock_owned); e = list_next(e)) {
+	  struct lock *l = list_entry(e, struct lock, elem);
+	  l->cur_pri = t->priority;
+	}
+
+	check_lock->priority = t->priority;
+      }
     }
+      
 
     t->sleeping_on_lock = lock;
     //sleep
@@ -313,13 +324,13 @@ lock_release (struct lock *lock)
   } else {
     list_sort(&cur_thread->lock_owned, lock_comp, NULL);
     cur_thread->priority = list_entry(list_front(&cur_thread->lock_owned),struct lock, elem)->cur_pri;
-  }
+  } 
 
  /*if (lock->holder->priority_backup != 0) {
   //restore priority
   lock->holder->priority = lock->holder->priority_backup;
   lock->holder->priority_backup = 0;
-}*/
+}
 
   /** ------------------------------------------End of Priority Inversion---------------------------------------- */
   //release lock
