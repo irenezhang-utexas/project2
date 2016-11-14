@@ -11,6 +11,8 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "thread.h"
+#include "synch.h"
 
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -393,6 +395,36 @@ thread_set_priority (int new_priority)
  intr_set_level(old_level);
 
 }
+
+
+
+/* Sets the CUR's priority to NEW_PRIORITY. */
+void
+thread_set_chain_priority (int new_priority, struct thread* cur)
+{
+
+ if (cur->priority < new_priority) {
+
+  	cur->priority = new_priority;
+
+	if (!list_empty(&cur->lock_owned)) {
+
+	 struct list_elem *elem = list_front(&cur->lock_owned);
+
+	 for (; elem != list_end(&cur->lock_owned); elem = list_next(elem)) {
+
+	  struct lock *l = list_entry(elem,
+	  struct lock, elem);
+	  if (l->cur_pri < new_priority)
+	   		l->cur_pri = new_priority;
+
+	 }
+	}
+ }
+}
+
+
+
 
 /* Returns the current thread's priority. */
 int

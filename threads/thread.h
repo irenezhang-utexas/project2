@@ -129,6 +129,8 @@ void yield_for_next(void);
 struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
+void thread_set_chain_priority (int new_priority, struct thread* cur);
+
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
