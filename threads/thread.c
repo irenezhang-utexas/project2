@@ -219,7 +219,7 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   ASSERT ( !intr_context ());
-  if(priority >= thread_current()->priority){
+  if(priority > thread_current()->priority){
     thread_yield();
   }
 
@@ -406,20 +406,19 @@ thread_set_chain_priority (int new_priority, struct thread* cur)
  if (cur->priority < new_priority) {
 
   	cur->priority = new_priority;
+	/* if (!list_empty(&cur->lock_owned)) { */
 
-	if (!list_empty(&cur->lock_owned)) {
+	/*  struct list_elem *elem = list_front(&cur->lock_owned); */
 
-	 struct list_elem *elem = list_front(&cur->lock_owned);
+	/*  for (; elem != list_end(&cur->lock_owned); elem = list_next(elem)) { */
 
-	 for (; elem != list_end(&cur->lock_owned); elem = list_next(elem)) {
+	/*   struct lock *l = list_entry(elem, */
+	/*   struct lock, elem); */
+	/*   if (l->cur_pri < new_priority) */
+	/*    		l->cur_pri = new_priority; */
 
-	  struct lock *l = list_entry(elem,
-	  struct lock, elem);
-	  if (l->cur_pri < new_priority)
-	   		l->cur_pri = new_priority;
-
-	 }
-	}
+	/*  } */
+	/* } */
  }
 }
 
@@ -584,6 +583,7 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
+    list_sort(&ready_list, priority_comp, NULL);
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 

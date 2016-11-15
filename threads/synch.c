@@ -203,9 +203,9 @@ lock_init (struct lock *lock)
   lock->base_pri = lock->cur_pri = PRI_MIN;
 }
 
-static bool lock_comp(struct list_elem *new_elem, struct list_elem *queue_elem, void *aux){
-
- return list_entry(new_elem, struct lock, elem)->cur_pri > list_entry(queue_elem, struct lock, elem)->cur_pri;
+static bool lock_comp(const struct list_elem *new_elem, const struct list_elem *queue_elem, void *aux UNUSED){
+  return list_entry(new_elem, struct lock, elem)->cur_pri < 
+    list_entry(queue_elem, struct lock, elem)->cur_pri;
 }
 
 
@@ -237,11 +237,10 @@ lock_acquire (struct lock *lock)
     //do nothing
   }
   else {
-
+    int old_level = intr_disable();
 	 struct thread *cur_holder = lock->holder;
 	 while (1){
 	  thread_set_chain_priority(t->priority, cur_holder); //donate cur holder
-
 	  if(cur_holder->sleeping_on_lock == NULL)
 	   	break;
 
@@ -249,8 +248,11 @@ lock_acquire (struct lock *lock)
 
 	 }
 
-
+	 if(t->priority > lock->cur_pri)
+	   lock->cur_pri = t->priority;
     t->sleeping_on_lock = lock;
+
+    intr_set_level(old_level);
     //sleep
     sema_down(&lock->semaphore);
 
@@ -259,12 +261,11 @@ lock_acquire (struct lock *lock)
    
   }
 
-
   lock->cur_pri = t->priority;
   lock->base_pri = lock->cur_pri; //backup
   
   /*store acquired locks*/
-  list_insert_ordered(&t->lock_owned,&lock->elem,lock_comp,NULL); 
+  list_insert_ordered(&t->lock_owned, &lock->elem,lock_comp, NULL); 
   /** ------------------------------------------End of Priority Donation----------------------------------------- */
 }
 
@@ -304,8 +305,25 @@ lock_release (struct lock *lock)
     cur_thread->priority = lock->base_pri;
     lock->base_pri = lock->cur_pri = PRI_MIN;
   } else {
-    list_sort(&cur_thread->lock_owned, lock_comp, NULL);
-    cur_thread->priority = list_entry(list_front(&cur_thread->lock_owned),struct lock, elem)->cur_pri;
+    /* int max = PRI_MIN; */
+    struct list_elem *e = list_front(&cur_thread->lock_owned);
+    for(; e != list_end(&cur_thread->lock_owned); e = list_next(e)) {
+      struct lock *lockCheck = list_entry(e, struct lock, elem);
+      if(!list_empty(&lockCheck->semaphore.waiters)) {
+	/* struct list_elem *waiterElem = list_front(&lockCheck->semaphore.waiters);  */
+	/* for(; waiterElem != list_end(&lockCheck->semaphore.waiters); waiterElem = list_next(waiterElem)) { */
+	/*   struct thread *waiter = list_entry(waiterElem, struct thread, elem); */
+	/*   if(waiter->priority > max) */
+	/*     max = waiter->priority; */
+	/* } */
+	list_sort(&lockCheck->semaphore.waiters, priority_comp, NULL);
+	lockCheck->cur_pri = list_entry(list_front(&lockCheck->semaphore.waiters), struct thread, elem)->priority;
+      }
+    }
+
+    struct list_elem *maxLock = list_max(&cur_thread->lock_owned, lock_comp, NULL);
+    struct lock *l = list_entry(maxLock, struct lock, elem);
+    cur_thread->priority = l->cur_pri;
   }
 
  /*if (lock->holder->priority_backup != 0) {
