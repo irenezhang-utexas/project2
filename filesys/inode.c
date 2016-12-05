@@ -10,14 +10,41 @@
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
+/*MUST ADD UP TO THE DIFFERENCE BETWEEN (BLOCK_SECTOR_SIZE) AND inode_disk's METADATA*/
+#define INODE_POINTERS 125
+#define INODE_DIRECT 120
+#define INODE_SINGLY_INDIRECT 4
+#define INODE_DOUBLY_INDIRECT 1
+
+const off_t direct_size = BLOCK_SECTOR_SIZE;
+const off_t singly_size = BLOCK_SECTOR_SIZE * INODE_POINTERS;
+const off_t doubly_size = BLOCK_SECTOR_SIZE * INODE_POINTERS * INODE_POINTERS;
+
+const off_t direct_region_size = direct_size * INODE_DIRECT;
+const off_t singly_region_size = singly_size  * INODE_SINGLY_INDIRECT;
+const off_t doubly_region_size = doubly_size * INODE_DOUBLY_INDIRECT;
+
+#define INODE_DIRECT_OFF(off) off 
+#define INODE_SINGLY_OFF(off) (off - direct_region_size) 
+#define INODE_DOUBLY_OFF(off) (off - (direct_region_size + singly_region_size)) 
+
+#define INODE_IS_DIRECT(off) (((off < direct_region_size) && (off >= 0)) ? true : false)
+#define INODE_IS_SINGLY(off) (((off > direct_region_size) && (off < (singly_region_size + direct_region_size))) ? true : false)
+#define INODE_IS_DOUBLY(off) (((off > (direct_region_size + singly_region_size)) \
+			        && (off < (doubly_region_size + singly_region_size + direct_region_size))) ? true : false)
+
+enum sector_t {eDIRECT, eSINGLY, eDOUBLY};
+
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
-    block_sector_t start;               /* First data sector. */
+    block_sector_t start;               /* Not used */
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
-    uint32_t unused[125];               /* Not used. */
+    block_sector_t direct[INODE_DIRECT];
+    block_sector_t singly[INODE_SINGLY_INDIRECT];
+    block_sector_t doubly[INODE_DOUBLY_INDIRECT];
   };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -46,11 +73,75 @@ struct inode
 static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
+  enum sector_t type;
+
+  off_t directI;
+  off_t singlyI;
+  off_t doublyI;
+
+  block_sector_t singly_indirect_sec;
+  block_sector_t doubly_indirect_sec;
+
+  block_sector_t *direct_buff = (block_sector_t*) inode->data.direct;
+  block_sector_t *singly_indirect_buff = (block_sector_t*) inode->data.singly;
+
+  block_sector_t ret = -1;
+
   ASSERT (inode != NULL);
-  if (pos < inode->data.length)
-    return inode->data.start + pos / BLOCK_SECTOR_SIZE;
-  else
-    return -1;
+
+  if (pos < inode->data.length) {
+    if(INODE_IS_DIRECT(pos)) {
+      type = eDIRECT;
+
+      directI = INODE_DIRECT_OFF(pos) / direct_size;
+    } else if(INODE_IS_SINGLY(pos)) {
+      type = eSINGLY;
+
+      singlyI = INODE_SINGLY_OFF(pos) / singly_size;
+      directI = (INODE_SINGLY_OFF(pos) % singly_size) / direct_size;
+    } else if(INODE_IS_DOUBLY(pos)) {
+      type = eDOUBLY;
+
+      doublyI = INODE_DOUBLY_OFF(pos) / doubly_size;
+      singlyI = (INODE_DOUBLY_OFF(pos) % doubly_size) / singly_size;
+      directI = (INODE_DOUBLY_OFF(pos) % singly_size) / direct_size;
+    }
+
+    switch(type) {
+      case eDOUBLY:
+	if((doubly_indirect_sec = inode->data.doubly[doublyI]) != (block_sector_t) NULL) {
+	  singly_indirect_buff = (block_sector_t*) malloc(BLOCK_SECTOR_SIZE);
+	  if(singly_indirect_buff != NULL) 
+	    block_read(fs_device, doubly_indirect_sec, (void*) singly_indirect_buff);
+	}
+
+      case eSINGLY:
+	if(singly_indirect_buff != NULL) {
+	  if((singly_indirect_sec = singly_indirect_buff[singlyI]) != (block_sector_t) NULL) {
+	    direct_buff = (block_sector_t*) malloc(BLOCK_SECTOR_SIZE);
+	    if(direct_buff != NULL)
+	      block_read(fs_device, singly_indirect_sec, (void*) direct_buff);
+	  } 
+
+	  if(singly_indirect_buff != inode->data.singly)
+	    free(singly_indirect_buff);
+	}
+
+      case eDIRECT:
+	if(direct_buff != NULL) {
+	  if(direct_buff[directI] != (block_sector_t) NULL)
+	    ret = directI;
+
+	  if(direct_buff != inode->data.direct)
+	    free(direct_buff);
+	}
+
+      default: /*should never be the case*/
+	break;
+    }
+  }
+
+  return ret;
 }
 
 /* List of open inodes, so that opening a single inode twice
@@ -82,26 +173,44 @@ inode_create (block_sector_t sector, off_t length)
   ASSERT (sizeof *disk_inode == BLOCK_SECTOR_SIZE);
 
   disk_inode = calloc (1, sizeof *disk_inode);
-  if (disk_inode != NULL)
-    {
-      size_t sectors = bytes_to_sectors (length);
-      disk_inode->length = length;
-      disk_inode->magic = INODE_MAGIC;
-      if (free_map_allocate (sectors, &disk_inode->start)) 
-        {
-          block_write (fs_device, sector, disk_inode);
-          if (sectors > 0) 
-            {
-              static char zeros[BLOCK_SECTOR_SIZE];
-              size_t i;
+  if(disk_inode != NULL) {
+    /*new type implementation. Initialize the inode to length 0*/
+    disk_inode->length = 0;
+    disk_inode->magic = INODE_MAGIC;
+    size_t i;
+    for(i = 0; i < INODE_DIRECT; ++i)
+      disk_inode->direct[i] = (block_sector_t) NULL;
+    for(i = 0; i < INODE_SINGLY_INDIRECT; ++i)
+      disk_inode->singly[i] = (block_sector_t*) NULL;
+    for(i = 0; i < INODE_DOUBLY_INDIRECT; ++i)
+      disk_inode->doubly[i] = (block_sector_t**) NULL;
+
+    block_write (fs_device, sector, disk_inode);
+    free(disk_inode);
+    success = true;
+  }
+  /*old impementation*/
+  /* disk_inode = calloc (1, sizeof *disk_inode); */
+  /* if (disk_inode != NULL) */
+  /*   { */
+  /*     size_t sectors = bytes_to_sectors (length); */
+  /*     disk_inode->length = length; */
+  /*     disk_inode->magic = INODE_MAGIC; */
+  /*     if (free_map_allocate (sectors, &disk_inode->start))  */
+  /*       { */
+  /*         block_write (fs_device, sector, disk_inode); */
+  /*         if (sectors > 0)  */
+  /*           { */
+  /*             static char zeros[BLOCK_SECTOR_SIZE]; */
+  /*             size_t i; */
               
-              for (i = 0; i < sectors; i++) 
-                block_write (fs_device, disk_inode->start + i, zeros);
-            }
-          success = true; 
-        } 
-      free (disk_inode);
-    }
+  /*             for (i = 0; i < sectors; i++)  */
+  /*               block_write (fs_device, disk_inode->start + i, zeros); */
+  /*           } */
+  /*         success = true;  */
+  /*       }  */
+  /*     free (disk_inode); */
+  /*   } */
   return success;
 }
 
